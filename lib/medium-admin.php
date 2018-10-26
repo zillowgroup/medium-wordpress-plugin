@@ -19,6 +19,8 @@ class Medium_Admin {
 
   private static $_medium_api_host = "https://api.medium.com";
 
+  public static $options = '';
+
   /**
    * Initialises actions and filters.
    */
@@ -29,6 +31,7 @@ class Medium_Admin {
     session_start();
 
     add_action("admin_init", array("Medium_Admin", "admin_init"));
+    add_action("admin_menu", array("Medium_Admin", "admin_options_page" ) );
     add_action("admin_notices", array("Medium_Admin", "admin_notices"));
     add_action("tool_box", array("Medium_Admin", "tool_box"));
 
@@ -67,6 +70,71 @@ class Medium_Admin {
     wp_enqueue_style("medium_admin_css", MEDIUM_PLUGIN_URL . "css/admin.css", array(), MEDIUM_VERSION);
 
     self::$_migration_table = $wpdb->prefix . "medium_migration";
+
+    self::$options = get_option( 'medium_options' );
+
+    register_setting(
+      'medium_option_group',
+      'medium_options'
+    );
+
+    add_settings_section(
+      'medium_global_options',
+      'Medium Global Options',
+      array( 'Medium_Admin', 'medium_global_options_callback' ),
+      'medium-export-options'
+    );
+  }
+
+  /**
+   * Set
+   */
+  public static function medium_global_options_callback() {
+    global $wpdb;
+    
+    $medium_users_results = $wpdb->get_results('SELECT user_id, meta_value FROM wp_usermeta WHERE meta_key = "medium_user"');
+
+    if( $medium_users_results ) {
+      echo '<label for="medium_options[medium_post_all_as]">Select a connected user to use for all new posts on this site</label><br />';
+      echo '<select name="medium_options[medium_post_all_as]">';
+        echo '<option value="">None (use on a per-user basis)</option>';
+
+      foreach( $medium_users_results as $medium_users_result ) {
+        $medium_user_id = maybe_unserialize($medium_users_result->user_id);
+        $medium_user_obj = get_userdata( $medium_user_id );
+        $medium_user_nicename = $medium_user_obj->user_nicename;
+        echo '<option value="' . $medium_user_id . '" ' . selected( self::$options['medium_post_all_as'], $medium_user_id ) . '>' . $medium_user_nicename . '</option>';
+      }
+
+      echo '</select>';
+    }
+
+  }
+
+  /**
+   * Adds General Options Page
+   */
+  public static function admin_options_page() {
+    add_options_page(
+      'Medium',
+      'Medium',
+      'manage_options',
+      'medium-export-options',
+      array( 'Medium_Admin', 'create_admin_options_page' )
+    );
+  }
+
+  /**
+   * Content for General Options Page
+   */
+  public static function create_admin_options_page() {
+    echo '<div class="wrap">';
+      echo '<form method="post" action="options.php">';
+        settings_fields( 'medium_option_group' );
+        do_settings_sections( 'medium-export-options' );
+        submit_button();
+      echo '</form>';
+    echo '</div>';
   }
 
   /**
@@ -166,7 +234,7 @@ class Medium_Admin {
     if ($medium_user->default_publication_id != $publication_id) {
       $medium_user->default_publication_id = $publication_id;
     }
-
+    
     if (!$token) {
       $medium_user->id = "";
       $medium_user->image_url = "";
@@ -463,6 +531,7 @@ class Medium_Admin {
    * Potentially cross-posts to Medium if the conditions are right.
    */
   public static function save_post($post_id, $post) {
+
     if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
 
     $allowed_post_types = apply_filters("medium_allowed_post_types", array("post"));
@@ -495,8 +564,13 @@ class Medium_Admin {
     // If we don't want to cross-post this post to Medium, no need to do anything else.
     $skip_cross_posting = $medium_post->status == "none";
 
-    // If the user isn't connected, no need to do anything.
-    $medium_user = Medium_User::get_by_wp_id($post->post_author);
+    // use global override if selected
+    if( isset(self::$options['medium_post_all_as']) && self::$options['medium_post_all_as']!='' ) {
+      $medium_user = Medium_User::get_by_wp_id(self::$options['medium_post_all_as']);
+    } else {
+      // If the user isn't connected, no need to do anything.
+      $medium_user = Medium_User::get_by_wp_id($post->post_author);
+    }
     $connected = $medium_user->id && $medium_user->token;
 
     if (!$published || $skip_cross_posting || !$connected) {
@@ -538,7 +612,15 @@ class Medium_Admin {
 
     $medium_logo_url = MEDIUM_PLUGIN_URL . 'i/logo.png';
     $medium_post = Medium_Post::get_by_wp_id($post->ID);
-    $medium_user = Medium_User::get_by_wp_id($post->post_author);
+
+    // use global override if selected
+    if( isset(self::$options['medium_post_all_as']) && self::$options['medium_post_all_as']!='' ) {
+      $medium_user = Medium_User::get_by_wp_id(self::$options['medium_post_all_as']);
+    } else {
+      // If the user isn't connected, no need to do anything.
+      $medium_user = Medium_User::get_by_wp_id($post->post_author);
+    }
+
     if ($medium_post->id) {
       // Already connected.
       if ($medium_user->id) {
@@ -765,7 +847,7 @@ class Medium_Admin {
     $tags = array_values(array_unique(array_merge($slugs, $tags)));
 
     // pull in categories as tags
-    $categories = wp_get_the_category($post->ID);
+    $categories = get_the_category($post->ID);
     $cats = array();
     foreach($categories as $category){
         $cats[] = $category->name;
@@ -820,7 +902,7 @@ class Medium_Admin {
     // use 'publishedAt', just use the server time
     // fixes https://github.com/Medium/medium-wordpress-plugin/issues/106
     $post_date_ts = mysql2date('U', isset($post->post_date_gmt) ? $post->post_date_gmt : $post->post_date);
-    if (abs(mktime() - mysql2date('U')) < 900) {
+    if (abs(time() - $post_date_ts) < 900) {
       unset($body["publishedAt"]);
     }
     $data = json_encode($body);
