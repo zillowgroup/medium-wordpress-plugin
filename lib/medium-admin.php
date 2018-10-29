@@ -62,7 +62,7 @@ class Medium_Admin {
 
     wp_register_script("medium_admin_js", MEDIUM_PLUGIN_URL . "js/admin.js");
     wp_localize_script("medium_admin_js", "medium", array(
-    	"errorMissingScope" => __("An updated integration token is needed to perform this action. Please create a new integration token from your Medium settings page and set it on your WordPress profile above.", "medium"),
+      "errorMissingScope" => __("An updated integration token is needed to perform this action. Please create a new integration token from your Medium settings page and set it on your WordPress profile above.", "medium"),
       "errorUnknown" => __("An unknown error occurred (%s).", "medium")
     ));
     wp_enqueue_script("medium_admin_js");
@@ -91,8 +91,8 @@ class Medium_Admin {
    */
   public static function medium_global_options_callback() {
     global $wpdb;
-    
-    $medium_users_results = $wpdb->get_results('SELECT user_id, meta_value FROM wp_usermeta WHERE meta_key = "medium_user"');
+
+    $medium_users_results = $wpdb->get_results('SELECT user_id, meta_value FROM ' . $wpdb->usermeta . ' WHERE meta_key = "medium_user"');
 
     if( $medium_users_results ) {
       echo '<label for="medium_options[medium_post_all_as]">Select a connected user to use for all new posts on this site</label><br />';
@@ -236,7 +236,7 @@ class Medium_Admin {
     if ($medium_user->default_publication_id != $publication_id) {
       $medium_user->default_publication_id = $publication_id;
     }
-    
+
     if (!$token) {
       $medium_user->id = "";
       $medium_user->image_url = "";
