@@ -107,6 +107,8 @@ class Medium_Admin {
       }
 
       echo '</select>';
+    } else {
+      echo 'Go into a user profile and connect to a medium blog first to select global user.';
     }
 
   }
